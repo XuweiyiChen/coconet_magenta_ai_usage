@@ -1,0 +1,178 @@
+<html>
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/@magenta/music@^1.0.0"></script>
+  <!--Scripts for SPICE model-->
+  <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.2.9/dist/tf.min.js"></script>
+  <!--Tone.js and tfjs for the model-->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.58/Tone.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/tensorflow/1.2.8/tf.min.js"></script>
+  <!-- Core library, since we're going to use a player -->
+  <script src="https://cdn.jsdelivr.net/npm/@magenta/music@^1.0.0/es6/core.js"></script>
+  <!--Model we want to use -->
+  <script src="https://cdn.jsdelivr.net/npm/@magenta/music@^1.0.0/es6/music_vae.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@magenta/music@^1.0.0/es6/coconet.js"></script>
+</head>
+<body>
+  <h1>Here is a demo for Magenta</h1>
+  <button onclick="playmusic()">Play music</button>
+</body>
+<script>
+  const NUM_INPUT_SAMPLES = 1024;
+  const MODEL_SAMPLE_RATE = 16000;
+  const PT_OFFSET = 25.58
+  const PT_SLOPE = 63.07
+  const CONF_THRESHOLD = 0.9;
+  const MODEL_URL = 'https://tfhub.dev/google/tfjs-model/spice/2/default/1'
+  let model;
+  let streamStutus;
+
+  async function startDemo() {
+    model = await tf.loadGraphModel(MODEL_URL, { fromTFHub: true });
+    navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      .then(handleSuccess).catch(handleError);
+  }
+
+  function handleError(err) {
+    console.log(err);
+  }
+
+  function getPitchHz(modelPitch) {
+    const fmin = 10.0;
+    const bins_per_octave = 12.0;
+    const cqt_bin = modelPitch * PT_SLOPE + PT_OFFSET;
+    return fmin * Math.pow(2.0, (1.0 * cqt_bin / bins_per_octave))
+  }
+
+  function getMidi(pitch) {
+    return parseInt(Math.log2(pitch / 440) * 12 + 69)
+  }
+
+  // stop only mic
+  function stopAudioOnly(stream) {
+      stream.getTracks().forEach(function(track) {
+          if (track.readyState == 'live' && track.kind === 'audio') {
+              track.stop();
+          }
+      });
+  }
+
+  function handleSuccess(stream) {
+    streamStutus = stream;
+    // console.log(stream.getTracks())
+    let context = new AudioContext({
+      latencyHint: "playback",
+      sampleRate: MODEL_SAMPLE_RATE,
+    });
+
+    let source = context.createMediaStreamSource(stream);
+    let processor = context.createScriptProcessor(
+          NUM_INPUT_SAMPLES,
+          /*num_inp_channels=*/ 1,
+          /*num_out_channels=*/ 1);
+
+    // Converts audio to mono.
+    processor.channelInterpretation = 'speakers';
+    processor.channelCount = 1
+
+    // Runs processor on audio source.
+    source.connect(processor);
+    processor.connect(context.destination);
+
+    processor.onaudioprocess = function(e) {
+      const inputData = e.inputBuffer.getChannelData(0);
+      const input = tf.reshape(tf.tensor(inputData), [NUM_INPUT_SAMPLES])
+      output = model.execute({"input_audio_samples": input });
+      const uncertainties = output[0].dataSync();
+      const pitches = output[1].dataSync();
+
+      for (let i = 0; i < pitches.length; ++i) {
+        let confidence = 1.0 - uncertainties[i];
+        // console.log("i: ", i)
+        // if (i == 100) {
+        //   break;
+        // }
+        if (confidence < CONF_THRESHOLD) {
+          continue;
+        }
+        console.log("confidence: ", confidence);
+        console.log("pitches: ", getPitchHz(pitches[i]));
+        console.log("midi: ", getMidi(getPitchHz(pitches[i])));
+      }
+    }
+  }
+
+  function stop() {
+    stopAudioOnly(streamStutus)
+  }
+
+  function playmusic() {
+    // This needs a microphone to work, check for exceptions.
+    // setInterval("startDemo()", 2000
+    // startDemo();
+    // setTimeout("stop();", 20000)
+
+    // Each bundle exports a global object with the name of the bundle.
+    let player = new mm.SoundFontPlayer('https://storage.googleapis.com/magentadata/js/soundfonts/sgm_plus');
+    //...
+    // const mvae = new music_vae.MusicVAE('https://storage.googleapis.com/magentadata/js/checkpoints/music_vae/mel_2bar_small');
+    // mvae.initialize().then(() => {
+    //   mvae.sample(1).then((samples) => player.start(samples[0]));
+    // });
+    TWINKLE_TWINKLE = {
+      notes: [
+        {pitch: 60, startTime: 0.0, endTime: 0.5, instrument: 0},
+        {pitch: 60, startTime: 0.5, endTime: 1.0, instrument: 0},
+        {pitch: 67, startTime: 1.0, endTime: 1.5, instrument: 0},
+        {pitch: 67, startTime: 1.5, endTime: 2.0, instrument: 0},
+        {pitch: 69, startTime: 2.0, endTime: 2.5, instrument: 0},
+        {pitch: 69, startTime: 2.5, endTime: 3.0, instrument: 0},
+        {pitch: 67, startTime: 3.0, endTime: 4.0, instrument: 0},
+        {pitch: 65, startTime: 4.0, endTime: 4.5, instrument: 0},
+        {pitch: 65, startTime: 4.5, endTime: 5.0, instrument: 0},
+        {pitch: 64, startTime: 5.0, endTime: 5.5, instrument: 0},
+        {pitch: 64, startTime: 5.5, endTime: 6.0, instrument: 0},
+        {pitch: 62, startTime: 6.0, endTime: 6.5, instrument: 0},
+        {pitch: 62, startTime: 6.5, endTime: 7.0, instrument: 0},
+        {pitch: 60, startTime: 7.0, endTime: 8.0, instrument: 0},  
+      ],
+      totalTime: 8
+    };
+    const ANOTHER_MUSIC = {
+      notes: [
+        {pitch: 69, quantizedStartStep: 0, quantizedEndStep: 2, instrument: 0},
+        {pitch: 71, quantizedStartStep: 2, quantizedEndStep: 4, instrument: 0},
+        {pitch: 73, quantizedStartStep: 4, quantizedEndStep: 6, instrument: 0},
+        {pitch: 74, quantizedStartStep: 6, quantizedEndStep: 8, instrument: 0},
+        {pitch: 76, quantizedStartStep: 8, quantizedEndStep: 10, instrument: 0},
+        {pitch: 81, quantizedStartStep: 12, quantizedEndStep: 16, instrument: 0},
+        {pitch: 78, quantizedStartStep: 16, quantizedEndStep: 20, instrument: 0},
+        {pitch: 81, quantizedStartStep: 20, quantizedEndStep: 24, instrument: 0},
+        {pitch: 76, quantizedStartStep: 24, quantizedEndStep: 32, instrument: 0}
+      ],
+      quantizationInfo: {stepsPerQuarter: 4},
+      totalQuantizedSteps: 32
+      // predictFromPianoroll: 0
+    }
+    let harmony;
+    let conet = new coconet.Coconet('https://storage.googleapis.com/magentadata/js/checkpoints/coconet/bach')
+    conet.initialize().then(() => {
+      conet.infill(ANOTHER_MUSIC, {numIteations: 1}).then((result) => {
+        console.log(result)
+        console.log(result.notes)
+        console.log(1000)
+        let Answer = {}
+        Answer.notes = result.nodes
+        Answer.quantizationInfo = result.quantizationInfo
+        Answer.totalQuantizedSteps = result.totalQuantizedSteps
+        player.start(result)
+      })
+    });
+
+    // // Tone.start()
+    // console.log(1000)
+    // player.start(harmony)
+    // console.log(2000)
+    // player.stop() 
+  }
+</script>
+</html>
